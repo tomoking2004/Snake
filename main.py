@@ -13,7 +13,7 @@ def app():
     #agent = Random_Agent(env)
     #agent = Human_Agent(gui)
     agent = DQN_Agent(env)
-    agent.load("models/ddqn_model2k.h5")
+    agent.load("models/3layer_dqn_100.h5")
 
     # 機能拡張
     env.gui = gui

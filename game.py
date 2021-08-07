@@ -10,12 +10,14 @@ class Snake:
     """スネーク環境"""
 
     def __init__(self):
-        self.map = np.zeros((MAP_SIZE, MAP_SIZE)) # 状態
+        self.map = np.zeros((MAP_SIZE, MAP_SIZE)) # 環境
         self.snake_pos = []  # 蛇座標
-        self.food_pos = None  # 食料の座標
+        self.food_pos = None  # 食料座標
+        self.actions = [0,1,2,3]  # 行動の集合
+        self.direction = (0,0)  # 進行方向
         self.score = 0  # スコア
-        self.before_action = None
-        self.actions = [0,1,2,3]
+        self.steps = 0  # ステップ数
+        self.useless_steps = 0  # 無駄なステップ数
         self.spawn_snake()
         self.spawn_item()
 
@@ -30,6 +32,30 @@ class Snake:
         self.food_pos = (x,y)
         self.map[x][y] = 2
 
+    def get_state(self):
+        state = []
+        # 食べ物があるか(4方向)
+        ox, oy = self.snake_pos[0]
+        fx, fy = self.food_pos
+        state.append(1 if oy>fy else 0)
+        state.append(1 if fx>ox else 0)
+        state.append(1 if fy>oy else 0)
+        state.append(1 if ox>fx else 0)
+        # 障害物が目の前にあるか(4方向)
+        for dx, dy in [(0,-1),(1,0),(0,1),(-1,0)]:
+            x, y = ox+dx, oy+dy
+            if not 0<=x<MAP_SIZE or not 0<=y<MAP_SIZE or (x,y) in self.snake_pos[1:]:
+                state.append(1)
+            else:
+                state.append(0)
+        # 進んでいる方向(4方向)
+        dx, dy = self.direction
+        state.append(1 if dy==-1 else 0)
+        state.append(1 if dx==1 else 0)
+        state.append(1 if dy==1 else 0)
+        state.append(1 if dx==-1 else 0)
+        return np.reshape(state, (1, *INPUT_SHAPE))
+
     def is_actable(self, action):
         x, y = self.snake_pos[0]
         dx, dy = action
@@ -39,17 +65,25 @@ class Snake:
         else:
             return False
 
-    def get_map(self):
-        return self.map.copy()
+    def is_terminal(self, action):
+        if not self.is_actable(action) or self.useless_steps>100:
+            return True  #無効な動作をしたら/無駄なステップが100回以上続いたら終了
+        else:
+            return False
 
     def get_reward(self, action):
-        x, y = self.snake_pos[0]
         dx, dy = action
+        x, y = self.snake_pos[0]
         _x, _y = x+dx, y+dy
+        fx, fy = self.food_pos
         if (_x,_y)==self.food_pos:
-            return 1
+            self.useless_steps = 0
+            return 10  #食べ物を獲得した
+        elif (fx-_x)**2 + (fy-_y)**2 < (fx-x)**2 + (fy-y)**2:
+            return 1  #食べ物に近づく
         else:
-            return 0
+            return -1  #食べ物から離れる
+
 
     def move(self, action):
         for x, y in self.snake_pos:
@@ -67,51 +101,26 @@ class Snake:
             self.snake_pos.pop(-1)
         for x, y in self.snake_pos:
             self.map[x][y] = 1
-
-    def is_terminal(self):
-        if self.score>=100: # 100点に達したら終了
-            return True
-        else:
-            return False
-
-    def get_state(self):
-        state = []
-        # 食べ物の有無
-        x1, y1 = self.snake_pos[0]
-        x2, y2 = self.food_pos
-        state.append(1 if x1>x2 else 0)
-        state.append(1 if y1>y2 else 0)
-        state.append(1 if y1<y2 else 0)
-        state.append(1 if x1<x2 else 0)
-        # 頭と体/壁の距離
-        direction = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
-        for dx, dy in direction:
-            ox, oy = self.snake_pos[0]
-            x, y = ox+dx, oy+dy
-            while 0<=x<MAP_SIZE and 0<=y<MAP_SIZE:
-                if (x,y) in self.snake_pos[1:]:
-                    break
-                x += dx
-                y += dy
-            dis = ((x-ox)**2 + (y-oy)**2) ** 0.5
-            state.append(dis/MAP_SIZE)
-        return np.reshape(state, (1, *INPUT_SHAPE))
+        self.direction = action
 
     # メインメソッド
     def step(self, _action):
         # 上左右下
         action = [(-1,0), (0,-1), (0,1), (1,0)][_action]
-
-        if self.is_actable(action)==False:
-            state = self.get_state()
-            return state, -1, True, None
+        self.steps += 1
+        self.useless_steps += 1
 
         # 遷移先の状態,報酬,終端の取得
-        reward = self.get_reward(action)
-        self.move(action)
-        terminal = self.is_terminal()
-        state = self.get_state()
-        return state, reward, terminal, None
+        terminal = self.is_terminal(action)
+        if terminal:
+            reward = -100
+            state = self.get_state()
+            return state, reward, True, None
+        else:
+            reward = self.get_reward(action)
+            self.move(action)
+            state = self.get_state()
+            return state, reward, False, None
 
     def reset(self):
         self.__init__()
@@ -135,13 +144,15 @@ class SnakeGame(Snake):
             self.reset()
             self.gui.after(1000, self.loop)
         else:
-            self.gui.after(100, self.loop)
+            self.gui.after(1, self.loop)
 
     def play(self):
         self.gui.canvas_update()
         self.loop()
 
     def reset(self):  # 改
+        if self.gui.highscore < self.score:
+            self.gui.highscore = self.score
         self.__init__(self.gui, self.agent)
         state = self.get_state()
         return state
@@ -157,12 +168,13 @@ class GUI(tk.Tk):
         self.coordinates = [[(BLOCK_SIZE*x, BLOCK_SIZE*y) 
                         for x in range(MAP_SIZE)] for y in range(MAP_SIZE)]
         self.colors = COLORS
+        self.highscore = 0
         self.canvas.pack()
 
     # メインメソッド
     def canvas_update(self):
         # 全削除
-        self.title("score: {}".format(self.env.score))
+        self.title("score: {}, highscore: {}".format(self.env.score, self.highscore))
         self.canvas.delete("canvas")
         # ゲーム描画
         for y in range(MAP_SIZE):
@@ -171,21 +183,3 @@ class GUI(tk.Tk):
                 code = self.env.map[y][x]
                 fill = self.colors[int(code)]
                 self.canvas.create_rectangle(_x,_y,_x+BLOCK_SIZE,_y+BLOCK_SIZE,fill=fill,tag="canvas")
-        # 観測線描画
-        if DRAW_SIGHT:
-            direction = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]  # 8方向
-            for dx, dy in direction:
-                ox, oy = self.env.snake_pos[0]
-                x, y = ox+dx, oy+dy
-                while 0<=x<MAP_SIZE and 0<=y<MAP_SIZE:
-                    if self.env.map[x][y]!=0:
-                        break
-                    x += dx
-                    y += dy
-                x1 = BLOCK_SIZE*(oy+0.5)
-                y1 = BLOCK_SIZE*(ox+0.5)
-                x2 = BLOCK_SIZE*(y+0.5)
-                y2 = BLOCK_SIZE*(x+0.5)
-                fill = self.colors[-1]
-                self.canvas.create_line(x1, y1, x2, y2, fill=fill, tag="canvas")
-                #print(self.env.get_state())

@@ -24,8 +24,9 @@ class DQN_Agent:
     def build_model(self):  # ネットワーク構築
         model = Sequential()
         # when loading model, faild with InputLayer.
-        model.add(Dense(8, activation='relu', input_shape=INPUT_SHAPE))
-        model.add(Dense(8, activation='relu'))
+        model.add(Dense(128, activation='relu', input_shape=INPUT_SHAPE))
+        model.add(Dense(128, activation='relu'))
+        model.add(Dense(128, activation='relu'))
         model.add(Dense(OUTPUT_SIZE, activation='softmax'))
         optimizer = RMSprop(learning_rate=LR)
         # when loading model, faild with huber loss function.
@@ -34,7 +35,7 @@ class DQN_Agent:
 
     def info(self):  # 情報表示
         self.mainQN.summary()
-        plot_model(self.mainQN, to_file="Q-network.png", show_shapes=True)
+        plot_model(self.mainQN, to_file="models/{}_network.png".format(DQN_MODEL_NAME), show_shapes=True)
 
     def remember(self, experience):  # 経験記憶
         self.memory.append(experience)
@@ -65,7 +66,7 @@ class DQN_Agent:
     def update_target(self):  # target更新
         self.targetQN.set_weights(self.mainQN.get_weights())
 
-    def get_action(self, epsilon=0.01):  # 行動
+    def get_action(self, epsilon=0.0):  # 行動
 
         state = self.env.get_state()
 
@@ -93,10 +94,6 @@ class DQN_Agent:
 
     def train(self):  # 学習
 
-        # モデルのロード
-        if LOAD_MODEL:
-            self.load(DQN_MODEL_PATH)
-
         # メインルーチン
         total_reward = np.array([])
         total_mean = np.array([])
@@ -109,8 +106,9 @@ class DQN_Agent:
             state = self.env.reset()
             self.update_target()
             episode_reward = 0
+            t = 1
 
-            for t in range(1, MAX_STEPS+1):
+            while True:
 
                 epsilon = 0.001 + 0.9 / (1.0+episode)
                 action = self.get_action(epsilon)
@@ -129,6 +127,8 @@ class DQN_Agent:
                 if done:
                     break
 
+                t += 1
+
             # 報酬を記録
             total_reward = np.hstack((total_reward, episode_reward))
             mean = total_reward[-AVG_SIZE:].mean()
@@ -141,19 +141,18 @@ class DQN_Agent:
                 islearned = True
 
             # モデルの定期セーブ
-            if SAVE_MODEL and episode%SAVE_CYCLE==0:
-                self.save(DQN_MODEL_PATH)
+            if episode%SAVE_CYCLE==0:
+                self.save('models/{}_{}.h5'.format(DQN_MODEL_NAME, episode))
 
         # モデルのセーブ
-        if SAVE_MODEL:
-            self.save(DQN_MODEL_PATH)
+        self.save('models/{}_{}.h5'.format(DQN_MODEL_NAME, episode))
 
         # 結果のプロット
         plt.plot(np.arange(NUM_EPISODES), total_mean)
         plt.xlabel("episode")
         plt.ylabel("reward")
-        plt.title("Result")
-        plt.savefig("result.png")
+        plt.title("result")
+        plt.savefig("models/{}_result.png".format(DQN_MODEL_NAME))
         plt.show()
 
 
@@ -161,4 +160,5 @@ if __name__=="__main__":
     
     env = Snake()
     dqn = DQN_Agent(env)
+    #dqn.load(None)
     dqn.train()
